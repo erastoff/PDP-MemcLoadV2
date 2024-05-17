@@ -1,4 +1,5 @@
 .idea
+.tsv.gz
 .DS_Store
 *.[56789ao]
 *.a[56789o]
