@@ -195,10 +195,19 @@ func dotRename(filePath string) {
 }
 
 func insertAppsinstalled(memcAddr string, ai AppsInstalled, dryRun bool) bool {
+	// Преобразование lat и lon в указатели
+	lat := ai.Lat
+	lon := ai.Lon
+
+	// Преобразование []int в []uint32
+	apps := make([]uint32, len(ai.Apps))
+	for i, v := range ai.Apps {
+		apps[i] = uint32(v)
+	}
 	ua := &appsinstalled.UserApps{
-		Lat:  ai.Lat,
-		Lon:  ai.Lon,
-		Apps: ai.Apps,
+		Lat:  &lat,
+		Lon:  &lon,
+		Apps: apps,
 	}
 	key := fmt.Sprintf("%s:%s", ai.DevType, ai.DevID)
 	packed, err := proto.Marshal(ua)
@@ -206,12 +215,12 @@ func insertAppsinstalled(memcAddr string, ai AppsInstalled, dryRun bool) bool {
 		log.Printf("Cannot marshal protobuf: %v", err)
 		return false
 	}
-	data := map[string][]byte{key: packed}
 	memc := NewMemcacheStorage(memcAddr)
 	if dryRun {
-		log.Printf("%s - %s -> %s", memcAddr, key, ua)
+		log.Printf("%s - %s -> %v", memcAddr, key, ua)
 	} else {
-		err := memc.Client.Set(data)
+		item := &memcache.Item{Key: key, Value: packed}
+		err := memc.Client.Set(item)
 		if err != nil {
 			log.Printf("Cannot write to memc %s: %v", memcAddr, err)
 			return false
