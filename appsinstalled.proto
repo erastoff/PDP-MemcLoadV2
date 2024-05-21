@@ -1,5 +1,9 @@
 syntax = "proto2";
 
+package appsinstalled;
+
+option go_package = "/appsinstalled";
+
 message UserApps {
   repeated uint32 apps = 1;
   optional double lat = 2;
