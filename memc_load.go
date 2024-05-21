@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 var DEV_MEMC_CON = make(map[string]*MemcacheStorage)
@@ -87,9 +88,24 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error finding files: %v", err)
 	}
+	//for _, filename := range fileList {
+	//	go processFile(filename, deviceMemc, dryRun)
+	//}
+
+	var wg sync.WaitGroup
 	for _, filename := range fileList {
-		processFile(filename, deviceMemc, dryRun)
+		wg.Add(1)
+		go func(filename string) {
+			defer wg.Done()
+
+			// Выполняем обработку файла
+			processFile(filename, deviceMemc, dryRun)
+		}(filename)
 	}
+
+	// Ожидаем завершения всех горутин
+	wg.Wait()
+
 }
 
 func processFile(filePath string, deviceMemc map[string]string, dryRun bool) {
@@ -117,7 +133,6 @@ func processFile(filePath string, deviceMemc map[string]string, dryRun bool) {
 			continue
 		}
 		appsinstalled := parseAppsinstalled(line)
-		fmt.Println(appsinstalled)
 		if appsinstalled == nil {
 			errors++
 			continue
