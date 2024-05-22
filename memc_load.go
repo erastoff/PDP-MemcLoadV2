@@ -16,27 +16,29 @@ import (
 	"sync"
 )
 
-var DEV_MEMC_CON = make(map[string]*MemcacheStorage)
+// DevMemcCon Create map to store the opened Memcached connections
+var DevMemcCon = make(map[string]*MemcachedStorage)
 var normalErrRate = 0.01
 
-type MemcacheStorage struct {
+// MemcachedStorage Struct for Memcached Storage
+type MemcachedStorage struct {
 	Client *memcache.Client
 }
 
-func NewMemcacheStorage(addr string) *MemcacheStorage {
-	storage, exists := DEV_MEMC_CON[addr]
+// NewMemcachedStorage creates new connection or get it from DevMemcCon
+func NewMemcachedStorage(addr string) *MemcachedStorage {
+	storage, exists := DevMemcCon[addr]
 	if !exists {
-		// Если не существует, создаем новый клиент и сохраняем его в мапе
+		// If not exist, create new connection and add it into DevMemcCon map
 		client := memcache.New(addr)
-		storage = &MemcacheStorage{Client: client}
-		DEV_MEMC_CON[addr] = storage
+		storage = &MemcachedStorage{Client: client}
+		DevMemcCon[addr] = storage
 	}
 	return storage
-	//mc := memcache.New(addr)
-	//return &MemcacheStorage{Client: mc}
 
 }
 
+// AppsInstalled struct for pb file fields (namedtuple was used in Python)
 type AppsInstalled struct {
 	DevType string
 	DevID   string
@@ -45,6 +47,7 @@ type AppsInstalled struct {
 	Apps    []int
 }
 
+// main function defines shell arguments parsing and run file processing
 func main() {
 	var (
 		test    bool
@@ -56,17 +59,18 @@ func main() {
 		adid    string
 		dvid    string
 	)
+	// arguments with default values
 	flag.BoolVar(&test, "test", false, "Run tests")
 	flag.StringVar(&logFile, "log", "", "Log file path")
 	flag.BoolVar(&dryRun, "dry", false, "Dry run mode")
 	flag.StringVar(&pattern, "pattern", "data/appsinstalled/*.tsv.gz", "File pattern")
-	//flag.StringVar(&pattern, "pattern", "*.go", "File pattern")
 	flag.StringVar(&idfa, "idfa", "127.0.0.1:33013", "IDFA memcached address")
 	flag.StringVar(&gaid, "gaid", "127.0.0.1:33014", "GAID memcached address")
 	flag.StringVar(&adid, "adid", "127.0.0.1:33015", "ADID memcached address")
 	flag.StringVar(&dvid, "dvid", "127.0.0.1:33016", "DVID memcached address")
 	flag.Parse()
 
+	// logger initialisation (if you specify file in the args, logs will be saved there)
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 	if logFile != "" {
 		f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
@@ -77,41 +81,38 @@ func main() {
 		log.SetOutput(f)
 	}
 
+	// devices initialization
 	deviceMemc := map[string]string{
 		"idfa": idfa,
 		"gaid": gaid,
 		"adid": adid,
 		"dvid": dvid,
 	}
-	fmt.Printf("File list creating in pattert '%s'\n...\n", pattern)
+	// fetch file list for pattern
+	log.Printf("File list creating in pattern '%s'\n...\n", pattern)
 	fileList, err := filepath.Glob(pattern)
 	if err != nil {
 		log.Fatalf("Error finding files: %v", err)
 	}
-	//for _, filename := range fileList {
-	//	go processFile(filename, deviceMemc, dryRun)
-	//}
-
+	// concurrency with goroutine: file processing occurs for several files simultaneously
 	var wg sync.WaitGroup
 	for _, filename := range fileList {
 		wg.Add(1)
 		go func(filename string) {
 			defer wg.Done()
-
-			// Выполняем обработку файла
+			// target function
 			processFile(filename, deviceMemc, dryRun)
 		}(filename)
 	}
-
-	// Ожидаем завершения всех горутин
+	// waiting finishing all goroutines
 	wg.Wait()
-
 }
 
+// processFile is a entry function for each file processing
 func processFile(filePath string, deviceMemc map[string]string, dryRun bool) {
 	var processed, errors int
-	//var errors int
 	log.Printf("Processing %s", filePath)
+	// file opening
 	file, err := os.Open(filePath)
 	if err != nil {
 		log.Printf("Error opening file: %v", err)
@@ -126,6 +127,7 @@ func processFile(filePath string, deviceMemc map[string]string, dryRun bool) {
 	}
 	defer gzReader.Close()
 
+	// scanning each line using bufio scanner
 	scanner := bufio.NewScanner(gzReader)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -138,7 +140,6 @@ func processFile(filePath string, deviceMemc map[string]string, dryRun bool) {
 			continue
 		}
 		memcAddr, ok := deviceMemc[appsinstalled.DevType]
-		//_, ok := deviceMemc[appsinstalled.DevType]
 		if !ok {
 			errors++
 			log.Printf("Unknown device type: %s", appsinstalled.DevType)
@@ -151,11 +152,12 @@ func processFile(filePath string, deviceMemc map[string]string, dryRun bool) {
 			errors++
 		}
 	}
-
+	// dot prefix for processed file
 	if processed == 0 {
 		dotRename(filePath)
 		return
 	}
+	// printing result of processing
 	errRate := float64(errors) / float64(processed)
 	if errRate < normalErrRate {
 		log.Printf("Acceptable error rate (%.2f). Successful load", errRate)
@@ -165,6 +167,7 @@ func processFile(filePath string, deviceMemc map[string]string, dryRun bool) {
 	dotRename(filePath)
 }
 
+// parseAppsinstalled is a func to parse each line of the target file. Return AppsInstalled struct
 func parseAppsinstalled(line string) *AppsInstalled {
 	lineParts := strings.Split(strings.TrimSpace(line), "\t")
 	if len(lineParts) < 5 {
@@ -202,6 +205,7 @@ func parseAppsinstalled(line string) *AppsInstalled {
 	}
 }
 
+// dotRename func to rename file after process completion
 func dotRename(filePath string) {
 	dir, file := filepath.Split(filePath)
 	if err := os.Rename(filePath, filepath.Join(dir, "."+file)); err != nil {
@@ -209,12 +213,13 @@ func dotRename(filePath string) {
 	}
 }
 
+// insertAppsinstalled func to set line into Memcached connection
 func insertAppsinstalled(memcAddr string, ai AppsInstalled, dryRun bool) bool {
-	// Преобразование lat и lon в указатели
+	// transform lat and lon into pointers
 	lat := ai.Lat
 	lon := ai.Lon
 
-	// Преобразование []int в []uint32
+	// transform apps values from []int into []uint32
 	apps := make([]uint32, len(ai.Apps))
 	for i, v := range ai.Apps {
 		apps[i] = uint32(v)
@@ -225,12 +230,14 @@ func insertAppsinstalled(memcAddr string, ai AppsInstalled, dryRun bool) bool {
 		Apps: apps,
 	}
 	key := fmt.Sprintf("%s:%s", ai.DevType, ai.DevID)
+	// Serialization of UserApps struct
 	packed, err := proto.Marshal(ua)
 	if err != nil {
 		log.Printf("Cannot marshal protobuf: %v", err)
 		return false
 	}
-	memc := NewMemcacheStorage(memcAddr)
+	// Define new connection and set new value
+	memc := NewMemcachedStorage(memcAddr)
 	if dryRun {
 		log.Printf("%s - %s -> %v", memcAddr, key, ua)
 	} else {
